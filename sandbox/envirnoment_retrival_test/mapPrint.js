@@ -7,6 +7,20 @@ let tiles = [];
 let maxX = 0;
 let maxY = 0;
 
+const NON_WALKABLE_TILE = "0"
+const PARCEL_SPAWING_TILE = "1"
+const DELIVER_TILE = "2"
+const WALKABLE_TILE = "3"
+const MOVABLE_TILE = "5"
+const BOX_TILE = "5!"
+
+
+const LEFT_DIR_TILE = "←"
+const RIGHT_DIR_TILE = "→"
+const UP_DIR_TILE = "↑"
+const DOWN_DIR_TILE = "↓"
+
+
 socket.on('tile', (tile) => {
     tiles.push(tile);
 
@@ -28,9 +42,7 @@ function printMap() {
     }
 
     for (let tile of tiles) {
-        if (tile.type === 1) map[tile.y][tile.x] = '.';
-        else if (tile.type === 2) map[tile.y][tile.x] = '#';
-        else map[tile.y][tile.x] = '?';
+        map[tile.y][tile.x] = tile.type;
     }
 
     console.clear();
