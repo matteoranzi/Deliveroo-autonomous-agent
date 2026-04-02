@@ -3,9 +3,9 @@ import {TILE_TYPES} from "#types/world.js";
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTile.js").IOTile} IOTile
- * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOMapOptions} IOMapOptions
  *
  * @typedef {import("#types/world.js").TilePosition} TilePosition
+ * @typedef {import("#types/world.js").WorldMap} WorldMap
  * @typedef {import("#types/world.js").MoveDirection} MoveDirection
  * @typedef {import("#types/world.js").NavigationPath} NavigationPath
  * @typedef {import("#types/world.js").PathResult} PathResult
@@ -26,25 +26,6 @@ import {TILE_TYPES} from "#types/world.js";
 
 const COST_TO_NEIGHBOR = 1;
 
-/**
- * A Map keyed by TilePosition, hiding the string serialization of coordinates.
- * @template V
- */
-class TileMap {
-    #map = new Map();
-
-    /** @param {TilePosition} tile @returns {V | undefined} */
-    get(tile) { return this.#map.get(`${tile.x},${tile.y}`); }
-
-    /**
-     * @param {TilePosition} tile
-     * @param {V} value
-     */
-    set(tile, value) { this.#map.set(`${tile.x},${tile.y}`, value); return this; }
-
-    /** @param {TilePosition} tile @returns {boolean} */
-    has(tile) { return this.#map.has(`${tile.x},${tile.y}`); }
-}
 
 /**
  * @description Implements pathfinding algorithms to find the optimal path between two tiles on the map, considering the map layout and obstacles. The main algorithm implemented is A*, but other algorithms can be added in the future.
@@ -110,31 +91,29 @@ export class PathFinder {
     }
 
     /**
-     * @param {TileMap<TilePosition>} cameFrom
+     * @param {Array<Array<TilePosition|null>>} cameFrom
      * @param {TilePosition} currentTile
      * @returns {PathResult}
      */
     reconstructPath(cameFrom, currentTile) {
         let distance = 0;
-        let navigationPath = []
+        let navigationPath = [];
+        let nextTile;
 
-        while (cameFrom.has(currentTile)) {
-            let nextTile = cameFrom.get(currentTile);
-
-            navigationPath.push({TilePosition: currentTile, MoveDirection: this.whichMoveDirection(currentTile, nextTile, true)});
-
+        while (cameFrom[currentTile.x][currentTile.y] !== null) {
+            nextTile = cameFrom[currentTile.x][currentTile.y];
+            let direction = this.whichMoveDirection(currentTile, nextTile, true);
+            navigationPath.push({TilePosition: currentTile, MoveDirection: direction});
             currentTile = nextTile;
             distance++;
         }
-
-        console.log("[Navigation Path]")
-        console.log(navigationPath.reverse());
+        navigationPath.push({TilePosition: currentTile, MoveDirection: null});
 
         return {totalDistance: distance, path: navigationPath.reverse()};
     }
 
     /**
-     * @param {IOMapOptions} map
+     * @param {WorldMap} map
      * @param {TilePosition} currentTile
      * @returns {TilePosition[]}
      */
@@ -152,9 +131,15 @@ export class PathFinder {
                 // FIXME make sure values of map.width and map.height are correct, since Deliveroo server response gives them wrong
                 const validCoordinates = neighborX >= 0 && neighborX < map.width && neighborY >= 0 && neighborY < map.height;
                 if (validCoordinates) {
+                    console.log("map")
+                    console.log(map)
                     const neighborTileType = map.tiles[neighborX][neighborY];
 
-                    if (neighborTileType === TILE_TYPES.wall) continue;
+                    console.log("Neighbor: x=" + neighborX + ",y=" + neighborY, "type=" + neighborTileType);
+                    if (neighborTileType === TILE_TYPES.wall) {
+                        console.log("found a wall neighbor: ", neighborTileType);
+                        continue;
+                    }
 
                     // Check if neighbor tile is reachable
                     if (neighborTileType === TILE_TYPES.directional.up && dy === -1) continue; // below neighbor
@@ -189,7 +174,7 @@ export class PathFinder {
     //TEST if it works even when startTile === targetTile
 
     /**
-     * @param {IOMapOptions} map
+     * @param {WorldMap} map
      * @param {TilePosition} startTile
      * @param {TilePosition} targetTile
      * @param {HeuristicFunction} heuristic
@@ -198,47 +183,37 @@ export class PathFinder {
     aStar(map, startTile, targetTile, heuristic = this.manhattanDistance) {
         console.log("Starting A* pathfinding...");
 
-        const minQueue = new MinPriorityQueue((tileScore) => tileScore.distance, [{tile: startTile, distance: 0}])
-        const cameFrom = new TileMap();
-        const costScore = new TileMap();
-        const heuristicScore = new TileMap();
+        const minQueue = new MinPriorityQueue((tileScore) => tileScore.distance, [{tile: startTile, distance: 0}]);
+        const cameFrom    = Array.from({length: map.width}, () => new Array(map.height).fill(null));
+        const costScore   = Array.from({length: map.width}, () => new Array(map.height).fill(Infinity));
+        const heuristicScore = Array.from({length: map.width}, () => new Array(map.height).fill(Infinity));
 
-        for (let x = 0; x < map.width; x++) {
-            for (let y = 0; y < map.height; y++) {
-                const tilePos = {x, y};
-                costScore.set(tilePos, Infinity);
-                heuristicScore.set(tilePos, Infinity);
-            }
-        }
-
-        costScore.set(startTile, 0);
-        heuristicScore.set(startTile, heuristic(startTile, targetTile));
+        costScore[startTile.x][startTile.y] = 0;
+        heuristicScore[startTile.x][startTile.y] = heuristic(startTile, targetTile);
 
         while (!minQueue.isEmpty()) {
             const { tile: currentTile, distance: dequeuedDistance } = minQueue.dequeue();
-            const currentDistance = costScore.get(currentTile) + heuristicScore.get(currentTile);
 
             // stale entry: a better path to this tile was already processed
-            if (dequeuedDistance > currentDistance) continue;
+            if (dequeuedDistance > costScore[currentTile.x][currentTile.y] + heuristicScore[currentTile.x][currentTile.y]) continue;
 
             if (currentTile.x === targetTile.x && currentTile.y === targetTile.y) {
-                let a = this.reconstructPath(cameFrom, currentTile);
-                console.dir(a, { depth: null })
+                return this.reconstructPath(cameFrom, currentTile);
             }
 
             for (const neighborTile of this.getNeighbors(map, currentTile)) {
-                const tentativeCostScore = costScore.get(currentTile) + COST_TO_NEIGHBOR;
+                const tentativeCostScore = costScore[currentTile.x][currentTile.y] + COST_TO_NEIGHBOR;
 
-                if (tentativeCostScore < costScore.get(neighborTile)) {
-                    cameFrom.set(neighborTile, currentTile);
-                    costScore.set(neighborTile, tentativeCostScore);
-                    heuristicScore.set(neighborTile, tentativeCostScore + heuristic(neighborTile, targetTile));
-                    minQueue.enqueue({tile: neighborTile, distance: heuristicScore.get(neighborTile)});
+                if (tentativeCostScore < costScore[neighborTile.x][neighborTile.y]) {
+                    cameFrom[neighborTile.x][neighborTile.y] = currentTile;
+                    costScore[neighborTile.x][neighborTile.y] = tentativeCostScore;
+                    heuristicScore[neighborTile.x][neighborTile.y] = tentativeCostScore + heuristic(neighborTile, targetTile);
+                    minQueue.enqueue({tile: neighborTile, distance: heuristicScore[neighborTile.x][neighborTile.y]});
                 }
             }
         }
 
-        return null
+        return null;
     }
 
 // ________________________________ end PATHFINDING ALGORITHMS ____________________________________

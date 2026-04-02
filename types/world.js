@@ -1,11 +1,19 @@
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTile.js").IOTile} IOTile
+ * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTileType.js").IOTileType} IOTileType
  */
 
 /**
  * @typedef {Object} TilePosition
  * @property {number} x
  * @property {number} y
+ */
+
+/**
+ * @typedef {Object} WorldMap
+ * @property {number} width                             Map width in tiles
+ * @property {number} height                            Map height in tiles
+ * @property {IOTileType[][]} tiles                     2D array of tile types
  */
 
 /**
