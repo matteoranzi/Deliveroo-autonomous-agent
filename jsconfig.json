@@ -5,7 +5,11 @@
     "moduleResolution": "nodenext",
     "sourceMap": true,
     "allowJs": true,
-    "checkJs": true
+    "checkJs": true,
+    "paths": {
+      "#@unitn-asa/deliveroo-js-sdk/*": ["./node_modules/@unitn-asa/deliveroo-js-sdk/*"],
+      "#types/*.js": ["./types/*.js"]
+    }
   },
   "exclude": [
     "node_modules",
