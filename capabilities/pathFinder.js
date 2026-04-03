@@ -8,7 +8,7 @@ import {TILE_TYPES} from "#types/world.js";
  * @typedef {import("#types/world.js").WorldMap} WorldMap
  * @typedef {import("#types/world.js").MoveDirection} MoveDirection
  * @typedef {import("#types/world.js").NavigationPath} NavigationPath
- * @typedef {import("#types/world.js").PathResult} PathResult
+ * @typedef {import("#types/world.js").TileMoveTile} TileMoveTile
  */
 
 /**
@@ -91,25 +91,29 @@ export class PathFinder {
     }
 
     /**
-     * @param {Array<Array<TilePosition|null>>} cameFrom
+     * @param {TilePosition[][]} cameFrom
      * @param {TilePosition} currentTile
-     * @returns {PathResult}
+     * @returns {NavigationPath}
      */
     reconstructPath(cameFrom, currentTile) {
-        let distance = 0;
-        let navigationPath = [];
-        let nextTile;
+        let navigationPath = {distance: 0, path: []};
+        let srcTile;
 
         while (cameFrom[currentTile.x][currentTile.y] !== null) {
-            nextTile = cameFrom[currentTile.x][currentTile.y];
-            let direction = this.whichMoveDirection(currentTile, nextTile, true);
-            navigationPath.push({TilePosition: currentTile, MoveDirection: direction});
-            currentTile = nextTile;
-            distance++;
-        }
-        navigationPath.push({TilePosition: currentTile, MoveDirection: null});
+            srcTile = cameFrom[currentTile.x][currentTile.y];
+            let direction = this.whichMoveDirection(currentTile, srcTile, true);
 
-        return {totalDistance: distance, path: navigationPath.reverse()};
+            let tileMoveTile = {from: srcTile, direction: direction, to: currentTile};
+            navigationPath.path.push(tileMoveTile);
+
+            currentTile = srcTile;
+            navigationPath.distance++;
+        }
+
+        // reverse the path to get the correct order from start to target
+        navigationPath.path = navigationPath.path.reverse();
+
+        return navigationPath;
     }
 
     /**
@@ -131,15 +135,9 @@ export class PathFinder {
                 // FIXME make sure values of map.width and map.height are correct, since Deliveroo server response gives them wrong
                 const validCoordinates = neighborX >= 0 && neighborX < map.width && neighborY >= 0 && neighborY < map.height;
                 if (validCoordinates) {
-                    console.log("map")
-                    console.log(map)
                     const neighborTileType = map.tiles[neighborX][neighborY];
 
-                    console.log("Neighbor: x=" + neighborX + ",y=" + neighborY, "type=" + neighborTileType);
-                    if (neighborTileType === TILE_TYPES.wall) {
-                        console.log("found a wall neighbor: ", neighborTileType);
-                        continue;
-                    }
+                    if (neighborTileType === TILE_TYPES.wall) continue;
 
                     // Check if neighbor tile is reachable
                     if (neighborTileType === TILE_TYPES.directional.up && dy === -1) continue; // below neighbor
@@ -178,7 +176,7 @@ export class PathFinder {
      * @param {TilePosition} startTile
      * @param {TilePosition} targetTile
      * @param {HeuristicFunction} heuristic
-     * @returns {PathResult | null} If path exists, the route and total distance is returned. null otherwise
+     * @returns {NavigationPath | null} If path exists, the route and total distance is returned. null otherwise
      */
     aStar(map, startTile, targetTile, heuristic = this.manhattanDistance) {
         console.log("Starting A* pathfinding...");

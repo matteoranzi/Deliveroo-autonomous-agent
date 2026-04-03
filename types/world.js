@@ -20,16 +20,21 @@
  * @typedef {"up" | "right" | "left" | "down"} MoveDirection
  */
 
+
 /**
- * @typedef {Array<[TilePosition, MoveDirection]>} NavigationPath
- * @description An array of move-tile pairs where each pair contains a
- * tile position and the direction to move from it.
+ * @typedef {Object} TileMoveTile
+ * @property {TilePosition} from
+ * @property {MoveDirection} direction
+ * @property {TilePosition} to
  */
 
 /**
- * @typedef {Object} PathResult
- * @property {number} totalDistance
- * @property {NavigationPath} path
+ * @typedef {Object} NavigationPath
+ * @property {number} distance
+ * @property {TileMoveTile[]} path
+ * @description An array of tile-move-tile tuples, where each tuple represents a move from one tile to another
+ * in a specific direction. The first element of the tuple is the starting tile position, the second element
+ * is the move direction, and the third element is the target tile position.
  */
 
 export {};

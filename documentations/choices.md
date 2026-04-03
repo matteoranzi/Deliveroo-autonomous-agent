@@ -18,4 +18,5 @@ lastTime = currentTime;socket;
 * Inferire il decaying time delle parcels: delta time calcolato monitorando quando un evento sensing informa la modifica del reward di un parcel già conosciuto
 * L'agente parte con un planning naive alla ricerca di parcels, appena avrà inferito questi dati potrà implementare un planning più sofisticato
 * Il decaying time è importante per capire se conviene raccogliere un parcel o meno, se il reward è troppo basso potrebbe essere più conveniente cercarne un altro
-* 
+
+*  consider to choose also not the closer parcel delivery tile in case of a busy area of other Agents
