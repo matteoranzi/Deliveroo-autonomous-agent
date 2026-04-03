@@ -57,6 +57,8 @@ let gameConfig = {}
  * @description A queue of actions that the agent will perform. The agent will pop actions from this queue and execute them in order.
  * This allows the agent to plan a sequence of actions in response to the environment and its goals, and then execute them over time as the server emits "info" events (i.e., server ticks).
  */
+//TODO some actions should be loaded into this vector in bunch (e.g. navigation path) but sent to server one at a time
+// but if for some reason the navigation needs to be aborted, all the batch needs to be removed
 let agentMovingActions = []
 
 
@@ -181,7 +183,12 @@ Promise.all([onMapReady, onYouReady, onInfoReady, onConfigReady]).then(() => {
                 let nextAction = agentMovingActions.shift();
                 console.dir(`Agent tick, current position: (${me.x}, ${me.y}), next action: move ${nextAction.direction} to (${nextAction.to.x}, ${nextAction.to.y})`, {depth: null});
                 const moveResult = await move(nextAction.direction);
-                if (!moveResult) console.log("Move failed, the agent could not move in the direction: " + nextAction.direction);
+                if (!moveResult) {
+                    console.log("Move failed, the agent could not move in the direction: " + nextAction.direction);
+                    // Retries until action can be performed
+                    //TODO add a expiration to the insistence of action
+                    agentMovingActions.unshift(nextAction);
+                }
             } else {
                 await new Promise(r => setTimeout(r, gameConfig.CLOCK));
             }
