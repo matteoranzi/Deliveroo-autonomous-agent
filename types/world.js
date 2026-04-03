@@ -42,18 +42,18 @@ export {};
 
 
 export const TILE_TYPES = {
-    wall: "0",
-    parcelSpawner: "1",
-    delivery: "2",
-    walkable: "3",
-    // base: "4", // ASK Wrong documentation in IOTile.js code?
-    crateSliding: "5",
-    crateSpawning: "5!",
+    wall: '0',
+    parcelSpawner: '1',
+    delivery: '2',
+    walkable: '3',
+    // base: '4', // ASK Wrong documentation in IOTile.js code?
+    crateSliding: '5',
+    crateSpawning: '5!',
 
     directional: {
-        left: "←",
-        right: "→",
-        up: "↑",
-        down: "↓",
+        left: '←',
+        right: '→',
+        up: '↑',
+        down: '↓',
     }
 }

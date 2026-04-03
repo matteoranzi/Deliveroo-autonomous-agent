@@ -1,5 +1,5 @@
 import {MinPriorityQueue} from "@datastructures-js/priority-queue";
-import {TILE_TYPES} from "#types/world.js";
+import {getNeighbors} from "#capabilities/mapUtils.js";
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTile.js").IOTile} IOTile
@@ -33,9 +33,6 @@ const COST_TO_NEIGHBOR = 1;
  * The pathfinding algorithms can be used by the agent controller to navigate the map efficiently.
  */
 export class PathFinder {
-
-
-
     // _______________________________ HEURISTICS ____________________________________
     /**
      * @param {TilePosition} startTile
@@ -116,49 +113,6 @@ export class PathFinder {
         return navigationPath;
     }
 
-    /**
-     * @param {WorldMap} map
-     * @param {TilePosition} currentTile
-     * @returns {TilePosition[]}
-     */
-    //TODO implement fuzzy logic with known crates positions
-    getNeighbors(map, currentTile) {
-        let neighbors = [];
-
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                if (dx === 0 && dy === 0 || Math.abs(dx) + Math.abs(dy) === 2) continue; // Skip the current tile and diagonal neighbors (since invalid moves)
-
-                const neighborX = currentTile.x + dx;
-                const neighborY = currentTile.y + dy;
-
-                // FIXME make sure values of map.width and map.height are correct, since Deliveroo server response gives them wrong
-                const validCoordinates = neighborX >= 0 && neighborX < map.width && neighborY >= 0 && neighborY < map.height;
-                if (validCoordinates) {
-                    const neighborTileType = map.tiles[neighborX][neighborY];
-
-                    if (neighborTileType === TILE_TYPES.wall) continue;
-
-                    // Check if neighbor tile is reachable
-                    if (neighborTileType === TILE_TYPES.directional.up && dy === -1) continue; // below neighbor
-                    if (neighborTileType === TILE_TYPES.directional.right && dx === -1) continue; // left neighbor
-                    if (neighborTileType === TILE_TYPES.directional.down && dy === 1) continue; // above neighbor
-                    if (neighborTileType === TILE_TYPES.directional.left && dx === 1) continue; // right neighbor
-
-                    //FIXME implement complete logic considering crate sliding and crate spawning cells (saved in agent memory)
-                    if (neighborTileType === TILE_TYPES.crateSpawning) continue;
-
-
-                    //FIXME implement fuzzy logic when a tile is occupied by another agent (agent sensing + memory)
-                    // maybe pathfinding doesn't care and agent controller handles it by insisting on the move, otherwise marks in memory as unreachable and launches a new pathfinding with the updated map (maybe also considering a timeout for that tile to be free again, since other agent will move away eventually)
-
-                    neighbors.push({x: neighborX, y: neighborY});
-                }
-            }
-        }
-
-        return neighbors;
-    }
 // ________________________________ end UTILITIES ____________________________________
 
 
@@ -188,18 +142,18 @@ export class PathFinder {
 
         costScore[startTile.x][startTile.y] = 0;
         heuristicScore[startTile.x][startTile.y] = heuristic(startTile, targetTile);
-
         while (!minQueue.isEmpty()) {
             const { tile: currentTile, distance: dequeuedDistance } = minQueue.dequeue();
 
             // stale entry: a better path to this tile was already processed
             if (dequeuedDistance > costScore[currentTile.x][currentTile.y] + heuristicScore[currentTile.x][currentTile.y]) continue;
 
+
             if (currentTile.x === targetTile.x && currentTile.y === targetTile.y) {
                 return this.reconstructPath(cameFrom, currentTile);
             }
 
-            for (const neighborTile of this.getNeighbors(map, currentTile)) {
+            for (const neighborTile of getNeighbors(map, currentTile)) {
                 const tentativeCostScore = costScore[currentTile.x][currentTile.y] + COST_TO_NEIGHBOR;
 
                 if (tentativeCostScore < costScore[neighborTile.x][neighborTile.y]) {
