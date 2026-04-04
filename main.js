@@ -3,9 +3,6 @@ import 'dotenv/config'
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
 import {TILE_TYPES} from "#types/world.js";
 import {MapAnalysis} from "#capabilities/Analysis/MapAnalysis.js";
-import { WorkerPool } from '#capabilities/Navigation/WorkerPool.js';
-
-const aStarPool = new WorkerPool(new URL('./capabilities/Navigation/aStarWorker.js', import.meta.url));
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
@@ -66,6 +63,27 @@ let agentMovingActions = []
 
 
 // _______________________________ EVENTS ____________________________________
+const onConnect = new Promise((resolve) => {
+    socket.onConnect(() => {
+        console.log("Connected to server");
+        resolve();
+    });
+});
+
+const onDisconnect = new Promise((resolve) => {
+    socket.onDisconnect(() => {
+        console.log("Disconnected from server");
+        resolve();
+    })
+})
+
+const onSensing = new Promise((resolve) => {
+    socket.onSensing((data) => {
+        console.log(data);
+    })
+})
+
+
 const onMapReady = new Promise((resolve) => {
     socket.onMap((width, height, tiles) => {
         //XXX Due to server bug, the map is sent with width and height not always correct
@@ -120,6 +138,7 @@ const onInfoReady = new Promise((resolve) => {
         resolve();
     });
 })
+
 const onConfigReady = new Promise((resolve) => {
     socket.on("config", (config) => {
         gameConfig = config;
@@ -131,13 +150,12 @@ const onConfigReady = new Promise((resolve) => {
 
 // _______________________________ UTILS ____________________________________
 /**
- * Find the closest delivery tile and return the path to it.
- * Each eligible delivery tile is evaluated in a pooled worker thread.
+ * Find the closest delivery tile and return the path to it
  * @return {Promise<NavigationPath>}
  */
 // TODO consider to choose also not the closer parcel delivery tile in case of a busy area of other Agents
 async function getPathToClosestDeliveryTile() {
-    const startTile = {x: me.x, y: me.y};
+    let startTile = {x: me.x, y: me.y};
 
     // XXX Currently Agent goes to delivery tile only if is in the same SCC of the start tile.
     // TODO implement verification if it make sense to change SCC (for example there are more spawning AND delivery tiles)
@@ -146,7 +164,7 @@ async function getPathToClosestDeliveryTile() {
     );
 
     const paths = await Promise.all(
-        eligibleTiles.map((tile) => aStarPool.run({ map: worldMap, startTile, endTile: {x: tile.x, y: tile.y} }))
+        eligibleTiles.map((tile) => Promise.resolve(pathFinder.aStar(worldMap, startTile, {x: tile.x, y: tile.y})))
     );
 
     return paths
@@ -168,7 +186,6 @@ function planAgentMoves(navigationPath) {
 async function explore() {
     let startTime;
     let endTime;
-    console.log("Starting benchmark")
     for (let i = 0; i < 100; i++) {
         startTime = performance.now();
         await getPathToClosestDeliveryTile();
@@ -215,8 +232,6 @@ Promise.all([onMapReady, onYouReady, onInfoReady, onConfigReady]).then(() => {
 });
 
 function main() {
-    explore().then(r => console.log(""));
-
-    // TODO write a process shutdown method to graceful exit (e.g., aStarPool.destroy()) when the agent is killed or the process receives a termination signal
+    explore().then(r => console.log("Exploration completed"));
 }
 

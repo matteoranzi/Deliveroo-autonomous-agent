@@ -9,7 +9,7 @@ import {TILE_TYPES} from "#types/world.js";
  * Returns the walkable neighbors of a tile, respecting walls, directional tiles, and crate-spawning tiles.
  * @param {WorldMap} map
  * @param {TilePosition} tile
- * @param {boolean} crateSpawningFriend wether the crate spawning tiles should be considered as valid neighbors (true) or not (false, default) for pathfinding purposes.
+ * @param {boolean} crateSpawningFriend whether the crate spawning tiles should be considered as valid neighbors (true) or not (false, default) for pathfinding purposes.
  * @returns {TilePosition[]}
  */
 //TODO implement fuzzy logic with known crates positions (agent runtime memory)
