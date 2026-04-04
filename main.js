@@ -3,6 +3,9 @@ import 'dotenv/config'
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
 import {TILE_TYPES} from "#types/world.js";
 import {MapAnalysis} from "#capabilities/Analysis/MapAnalysis.js";
+import { WorkerPool } from '#capabilities/Navigation/WorkerPool.js';
+
+const aStarPool = new WorkerPool(new URL('./capabilities/Navigation/aStarWorker.js', import.meta.url));
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
@@ -128,31 +131,27 @@ const onConfigReady = new Promise((resolve) => {
 
 // _______________________________ UTILS ____________________________________
 /**
- * Find the closest delivery tile and return the path to it
- * @return {NavigationPath}
+ * Find the closest delivery tile and return the path to it.
+ * Each eligible delivery tile is evaluated in a pooled worker thread.
+ * @return {Promise<NavigationPath>}
  */
 // TODO consider to choose also not the closer parcel delivery tile in case of a busy area of other Agents
-function getPathToCloserDeliveryTile() {
+async function getPathToClosestDeliveryTile() {
+    const startTile = {x: me.x, y: me.y};
 
-    let startTile = {x: me.x, y: me.y};
-    let shortestPath = {distance: Infinity, path: []}
+    // XXX Currently Agent goes to delivery tile only if is in the same SCC of the start tile.
+    // TODO implement verification if it make sense to change SCC (for example there are more spawning AND delivery tiles)
+    const eligibleTiles = deliveryTiles.filter(
+        (tile) => sccMap[startTile.x][startTile.y] === sccMap[tile.x][tile.y]
+    );
 
-    for (let deliveryTile of deliveryTiles) {
-        let endTile = {x: deliveryTile.x, y: deliveryTile.y};
+    const paths = await Promise.all(
+        eligibleTiles.map((tile) => aStarPool.run({ map: worldMap, startTile, endTile: {x: tile.x, y: tile.y} }))
+    );
 
-        // XXX Currently Agent goes to delivery tile only if is in the same SCC of the start tile.
-        // TODO implement verification if it make sense to change SCC (for example there are more spawning AND delivery tiles)
-        if (sccMap[startTile.x][startTile.y] === sccMap[endTile.x][endTile.y]) {
-            let currentPath = pathFinder.aStar(worldMap, startTile, endTile);
-
-            if (currentPath !== null && currentPath.distance < shortestPath.distance) {
-                shortestPath = currentPath;
-            }
-        }
-
-    }
-
-    return shortestPath;
+    return paths
+        .filter((path) => path !== null)
+        .reduce((shortest, path) => path.distance < shortest.distance ? path : shortest, {distance: Infinity, path: []});
 }
 
 
@@ -166,6 +165,23 @@ function planAgentMoves(navigationPath) {
     }
 }
 
+async function explore() {
+    let startTime;
+    let endTime;
+    console.log("Starting benchmark")
+    for (let i = 0; i < 100; i++) {
+        startTime = performance.now();
+        await getPathToClosestDeliveryTile();
+        endTime = performance.now();
+    }
+    console.log(`Closest delivery tile pathfinding average execution time: ${endTime - startTime} ms`);
+
+    let navigationPath = await getPathToClosestDeliveryTile();
+    console.log("Best navigation path")
+    console.dir(navigationPath, {depth: null});
+
+    planAgentMoves(navigationPath);
+}
 
 // _______________________________ MAIN ____________________________________
 Promise.all([onMapReady, onYouReady, onInfoReady, onConfigReady]).then(() => {
@@ -199,10 +215,8 @@ Promise.all([onMapReady, onYouReady, onInfoReady, onConfigReady]).then(() => {
 });
 
 function main() {
-    let navigationPath = getPathToCloserDeliveryTile();
-    console.log("Best navigation path")
-    console.dir(navigationPath, {depth: null});
+    explore().then(r => console.log(""));
 
-   planAgentMoves(navigationPath);
+    // TODO write a process shutdown method to graceful exit (e.g., aStarPool.destroy()) when the agent is killed or the process receives a termination signal
 }
 

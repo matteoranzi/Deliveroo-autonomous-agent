@@ -1,1 +1,0 @@
-* In navigation path, consider spawning crates tiles as valid neighbours and once there, if the movement is not possible, recalculate navigation path based on new sensing information

@@ -133,20 +133,19 @@ export class PathFinder {
      * @returns {NavigationPath | null} If path exists, the route and total distance is returned. null otherwise
      */
     aStar(map, startTile, targetTile, heuristic = this.manhattanDistance) {
-        console.log("Starting A* pathfinding...");
 
         const minQueue = new MinPriorityQueue((tileScore) => tileScore.distance, [{tile: startTile, distance: 0}]);
         const cameFrom    = Array.from({length: map.width}, () => new Array(map.height).fill(null));
         const costScore   = Array.from({length: map.width}, () => new Array(map.height).fill(Infinity));
-        const heuristicScore = Array.from({length: map.width}, () => new Array(map.height).fill(Infinity));
+        const fScore = Array.from({length: map.width}, () => new Array(map.height).fill(Infinity));
 
         costScore[startTile.x][startTile.y] = 0;
-        heuristicScore[startTile.x][startTile.y] = heuristic(startTile, targetTile);
+        fScore[startTile.x][startTile.y] = heuristic(startTile, targetTile);
         while (!minQueue.isEmpty()) {
             const { tile: currentTile, distance: dequeuedDistance } = minQueue.dequeue();
 
             // stale entry: a better path to this tile was already processed
-            if (dequeuedDistance > costScore[currentTile.x][currentTile.y] + heuristicScore[currentTile.x][currentTile.y]) continue;
+            if (dequeuedDistance >  + fScore[currentTile.x][currentTile.y]) continue;
 
 
             if (currentTile.x === targetTile.x && currentTile.y === targetTile.y) {
@@ -159,8 +158,8 @@ export class PathFinder {
                 if (tentativeCostScore < costScore[neighborTile.x][neighborTile.y]) {
                     cameFrom[neighborTile.x][neighborTile.y] = currentTile;
                     costScore[neighborTile.x][neighborTile.y] = tentativeCostScore;
-                    heuristicScore[neighborTile.x][neighborTile.y] = tentativeCostScore + heuristic(neighborTile, targetTile);
-                    minQueue.enqueue({tile: neighborTile, distance: heuristicScore[neighborTile.x][neighborTile.y]});
+                    fScore[neighborTile.x][neighborTile.y] = tentativeCostScore + heuristic(neighborTile, targetTile);
+                    minQueue.enqueue({tile: neighborTile, distance: fScore[neighborTile.x][neighborTile.y]});
                 }
             }
         }
