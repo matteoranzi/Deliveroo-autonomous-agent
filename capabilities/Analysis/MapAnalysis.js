@@ -22,6 +22,7 @@ export class MapAnalysis {
      * or -1 for walls and non-walkable tiles. Tiles in the same SCC share the same ID.
      */
     //FIXME here spawningCrates tiles should be considered as neighbors
+    // anyway SCC should be updated with Agent's memory information
     stronglyConnectedComponents(map) {
         const disc        = Array.from({length: map.width}, () => new Array(map.height).fill(NOT_VISITED));
         const low         = Array.from({length: map.width}, () => new Array(map.height).fill(0));
