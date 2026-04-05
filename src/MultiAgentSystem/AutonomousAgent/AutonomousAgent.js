@@ -6,8 +6,12 @@ import {TILE_TYPES} from "#types/world.js";
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
+ * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOAgent.js").IOAgent} IOAgent
+ * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOCrate.js").IOCrate} IOCrate
+ * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOParcel.js").IOParcel} IOParcel
  * @typedef {import("#types/world.js").TilePosition} TilePosition
  * @typedef {import("#types/world.js").WorldMap} WorldMap
+ * @typedef {import("#types/world.js").WorldSensing} WorldSensing
  * @typedef {import("#types/world.js").NavigationPath} NavigationPath
  * @typedef {import("#types/world.js").TileMoveTile} TileMoveTile
  */
@@ -22,14 +26,32 @@ export class AutonomousAgent {
     #worldMap = { width: 0, height: 0, tiles: [] };
     /** @type {number[][]} */
     #sccMap = [];
+
+    /** @type {WorldSensing} */
+    #sensedWorld =  { width: 0, height: 0, tiles: [] };
+
+    /** @type {Map<string, [IOAgent]>} */
+    #agentsMap = new Map();
+    /** @type {Map<string, IOParcel>} */
+    #parcelsMap = new Map();
+    /** @type {Map<string, IOCrate>} */
+    #cratesMap = new Map();
+
     /** @type {Array} */
     #deliveryTiles = [];
     /** @type {Array} */
     #parcelSpawnerTiles = [];
-    /** @type {Object} */
+
+    /** @type {IOAgent} */
     #me = {};
+
     /** @type {IOGameOptions} */
     #gameConfig = {};
+
+    /** @type {number} */
+    #elapsedTime = 0;
+
+
 
     // ── Intention execution ───────────────────────────────────────────────────
 
@@ -63,11 +85,72 @@ export class AutonomousAgent {
         console.table(this.#sccMap);
 
         // Sensing is a continuous listener, not a one-shot init Promise
-        this.#socket.onSensing((data) => {
-            // TODO: update liveMap overlay, knownParcels, sensedAgents from data
+        this.#socket.onSensing((sensing) => {
             // TODO: trigger intention reconsideration if the current planned path is affected
-            // console.log("Sensing update:", data);
+            // console.log("Sensing update:", sensing);
+
+            for (let position of sensing.positions) {
+                this.#sensedWorld.tiles[position.x][position.y].updateTime = this.#elapsedTime
+            }
+
+            for (let agent of sensing.agents) {
+                //XXX: for now intermediate step values are skipped
+                if (agent.x %1 !== 0 || agent.y %1 !== 0) continue;
+
+                if(!this.#agentsMap.has(agent.id)) {
+                    console.log("Nice to meet you, ", agent.name);
+                    this.#agentsMap.set(agent.id, [agent]);
+                } else { // This agent remembers him
+                    const agentHistory = this.#agentsMap.get(agent.id);
+                    const last = agentHistory.at(-1);
+                    const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
+
+                    if (last !== "lost") { // This agent was seeing him also last time
+                        if (last.x !== agent.x && last.y !== agent.y) {
+                            agentHistory.push(agent);
+                            console.log("I'm seeing you moving, ", agent.name);
+                        } else {
+                            //Still seeing him, but he is not moving
+                            console.log("I'm still seeing you, but you are not moving, ", agent.name);
+                        }
+                    } else { // This agent didn't see him last time
+                        agentHistory.push(agent);
+
+                        if (secondLast.x !== agent.x && secondLast.y !== agent.y) {
+                            console.log("Welcome back, seems that you moved, ", agent.name);
+                        } else {
+                            console.log("Welcome back, seems you are stil here as before, ", agent.name);
+                        }
+                    }
+                }
+            }
+
+            for (const [id, agentHistory] of this.#agentsMap.entries()) {
+                const last = agentHistory.at(-1);
+                const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
+
+                if (!sensing.agents.map(agent => agent.id).includes(id)) {
+                    // If this agent is not seeing him anymore
+
+                    if (last !== "lost") {
+                        agentHistory.push("lost");
+                        console.log("I lost sight of you, ", last.name);
+                    } else {
+                        // Still not seeing him, but I already lost him before
+                        console.log("It's a while that I down't see ", secondLast.name, ". I remember him in: ", secondLast.x , ", ", secondLast.y);
+                        if ( this.#pathFinder.manhattanDistance({x: this.#me.x, y: this.#me.y}, {x: secondLast.x, y: secondLast.y}) <= this.#gameConfig.GAME.player.observation_distance ) {
+                            console.log( 'I remember ', secondLast.name, 'was within ', this.#gameConfig.GAME.player.observation_distance, ' tiles from here. Forget him.' );
+                            this.#agentsMap.delete(id)
+                        }
+                    }
+                }
+            }
         });
+
+        this.#socket.on("info", (info) => {
+            // console.log(info);
+            this.#elapsedTime = info.ms;
+        })
 
 
         console.log("All beliefs acquired — agent ready.");
@@ -88,14 +171,24 @@ export class AutonomousAgent {
                 this.#worldMap.width++;
                 this.#worldMap.height++;
 
+                this.#sensedWorld.width = this.#worldMap.width
+                this.#sensedWorld.height = this.#worldMap.height
+
                 this.#worldMap.tiles = Array.from(
                     { length: this.#worldMap.width },
                     () => new Array(this.#worldMap.height).fill(null)
+                );
+                this.#sensedWorld.tiles = Array.from(
+                    { length: this.#sensedWorld.width },
+                    () => new Array(this.#sensedWorld.height).fill(null)
                 );
 
                 for (const tile of tiles) {
                     const tileType = String(tile.type);
                     this.#worldMap.tiles[tile.x][tile.y] = tileType;
+                    this.#sensedWorld.tiles[tile.x][tile.y] = { updateTime: 0 };
+
+
                     switch (tileType) {
                         case TILE_TYPES.parcelSpawner: this.#parcelSpawnerTiles.push(tile); break;
                         case TILE_TYPES.delivery:      this.#deliveryTiles.push(tile);      break;
@@ -208,10 +301,10 @@ export class AutonomousAgent {
             while (true) {
                 if (this.#agentMovingActions.length > 0) {
                     const nextAction = this.#agentMovingActions.shift();
-                    console.log(`Moving ${nextAction.direction}: (${nextAction.from.x},${nextAction.from.y}) → (${nextAction.to.x},${nextAction.to.y})`);
+                    // console.log(`Moving ${nextAction.direction}: (${nextAction.from.x},${nextAction.from.y}) → (${nextAction.to.x},${nextAction.to.y})`);
                     const success = await move(nextAction.direction);
                     if (!success) {
-                        console.log(`Move failed (${nextAction.direction}), retrying...`);
+                        // console.log(`Move failed (${nextAction.direction}), retrying...`);
                         // TODO: add retry expiration to avoid infinite loops on permanent blockage
                         this.#agentMovingActions.unshift(nextAction);
                     }

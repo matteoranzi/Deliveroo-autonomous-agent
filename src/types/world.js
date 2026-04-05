@@ -10,11 +10,28 @@
  */
 
 /**
+ * @typedef {Object} SensedTile
+ * @property {number} updateTime
+ * @property {string[]=} parcelsId
+ * @property {string=} agentId
+ * @property {string=} crateId
+ */
+
+/**
  * @typedef {Object} WorldMap
  * @property {number} width                             Map width in tiles
  * @property {number} height                            Map height in tiles
  * @property {IOTileType[][]} tiles                     2D array of tile types
  */
+
+/**
+ * @typedef {Object} WorldSensing
+ * @property {number} width
+ * @property {number} height
+ * @property {SensedTile[][]} tiles
+ */
+
+
 
 /**
  * @typedef {"up" | "right" | "left" | "down"} MoveDirection
