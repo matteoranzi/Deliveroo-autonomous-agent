@@ -1,5 +1,5 @@
 import {MinPriorityQueue} from "@datastructures-js/priority-queue";
-import {getNeighbors} from "#capabilities/mapUtils.js";
+import {getNeighbors} from "../mapUtils.js";
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTile.js").IOTile} IOTile
@@ -33,6 +33,7 @@ const COST_TO_NEIGHBOR = 1;
  * The pathfinding algorithms can be used by the agent controller to navigate the map efficiently.
  */
 export class PathFinder {
+
     // _______________________________ HEURISTICS ____________________________________
     /**
      * @param {TilePosition} startTile
