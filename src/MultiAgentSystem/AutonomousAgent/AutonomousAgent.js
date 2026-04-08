@@ -208,6 +208,7 @@ export class AutonomousAgent {
      */
     #waitForYou() {
         return new Promise((resolve) => {
+            //XXX consider there half-step event
             this.#socket.onYou((you) => {
                 this.#me = you;
                 resolve(); // no-op after first call
