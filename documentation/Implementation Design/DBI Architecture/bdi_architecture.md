@@ -14,8 +14,8 @@ src/
 ├── main.js                            ← bootstrap, socket wiring, execution loop
 └── MultiAgentSystem/
     ├── AgentsOrchestrator.js          ← coordinates multiple agents (multi-agent future)
-    └── AutonomousAgent/
-        ├── AutonomousAgent.js         ← BDI agent class (belief base lives here)
+    └── BDI_Agent/
+        ├── BDI_Agent.js         ← BDI agent class (belief base lives here)
         └── capabilities/
             ├── mapUtils.js            ← getNeighbors (pure map logic, shared utility)
             ├── Navigation/
@@ -30,13 +30,13 @@ src/
 
 ## BDI Layer Breakdown
 
-### Beliefs — `AutonomousAgent`
+### Beliefs — `BDI_Agent`
 
 The agent's belief base is the single source of truth for world state.
 It is responsible for maintaining and merging all information the agent has about the environment.
 
 ```
-BeliefBase (inside AutonomousAgent):
+BeliefBase (inside BDI_Agent):
     staticMap       WorldMap        received once on connection, never changes
     sccMap          number[][]      derived from staticMap, computed once at startup
     liveMap         WorldMap        staticMap + dynamic sensing overlay (current truth)

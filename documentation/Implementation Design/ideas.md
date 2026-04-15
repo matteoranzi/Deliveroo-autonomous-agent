@@ -3,3 +3,6 @@
   * go around it
   * move it away from the path (how to implement the "move away from the path" behavior?)
   * chose a different path
+  * 
+---
+* In multi-agent, share information (internal knowledge) via "shout" or "say" (check APIs).

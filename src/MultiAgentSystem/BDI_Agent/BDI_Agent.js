@@ -18,7 +18,7 @@ import {TILE_TYPES} from "#types/world.js";
 
 const START_DELAY_MS = 1000;
 
-export class AutonomousAgent {
+export class BDI_Agent {
 
     // ── Beliefs ───────────────────────────────────────────────────────────────
 
@@ -79,6 +79,8 @@ export class AutonomousAgent {
             this.#waitForConfig(),
         ]);
 
+        console.log("Initial beliefs acquired");
+
         // Derived belief — computed once from the static map
         this.#sccMap = this.#mapAnalysis.stronglyConnectedComponents(this.#worldMap);
         console.log("Strongly Connected Components");
@@ -94,6 +96,8 @@ export class AutonomousAgent {
             }
 
             for (let agent of sensing.agents) {
+                //TODO: infer other agents move direction (by comparing current tile and previous tile)
+                // eventually implement some logic and strategy on this information
                 //XXX: for now intermediate step values are skipped
                 if (agent.x %1 !== 0 || agent.y %1 !== 0) continue;
 
@@ -243,6 +247,25 @@ export class AutonomousAgent {
         });
     }
 
+    // ── Utils ─────────────────────────────────────────────────────────────────
+    async #resilientMove(direction, maxAttempts = 3) {
+        const move = (direction) => new Promise((resolve) => this.#socket.emit("move", direction, resolve));
+
+        for (let i = 0; i < maxAttempts; ++i) {
+            console.log(`Moving ${direction} (attempt ${i + 1}/${maxAttempts})...`);
+            const result = await move(direction);
+            if (result) return result;
+
+            console.log(`Move ${direction} failed (attempt ${i + 1}/${maxAttempts}), retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        await this.#socket.emitShout(`Help! Blocked trying to move ${direction}`);
+        console.error(`Move ${direction} failed after ${maxAttempts} attempts. Giving up.`);
+        return null;
+    }
+
+
     // ── Plans ─────────────────────────────────────────────────────────────────
 
     /**
@@ -296,20 +319,21 @@ export class AutonomousAgent {
         await this.#initialize()
         console.log("Starting...");
 
-        const move = (direction) => new Promise((resolve) => this.#socket.emit("move", direction, resolve));
+
+        //TODO: write a resilientMove method that tries the move X times, if it fails the promise returns a failure
 
         const executionLoop = async () => {
             while (true) {
                 if (this.#agentMovingActions.length > 0) {
                     const nextAction = this.#agentMovingActions.shift();
                     // console.log(`Moving ${nextAction.direction}: (${nextAction.from.x},${nextAction.from.y}) → (${nextAction.to.x},${nextAction.to.y})`);
-                    const success = await move(nextAction.direction);
+                    const success = await this.#resilientMove(nextAction.direction);
                     if (!success) {
-                        // console.log(`Move failed (${nextAction.direction}), retrying...`);
-                        // TODO: add retry expiration to avoid infinite loops on permanent blockage
-                        this.#agentMovingActions.unshift(nextAction);
+                        console.error(`Move failed, aborting ${nextAction.direction}`);
+                        return;
                     }
                 } else {
+                    //XXX should the agent wait doing nothing until the next tick or should it immediately check for other options?
                     await new Promise((r) => setTimeout(r, this.#gameConfig.CLOCK));
                 }
             }
