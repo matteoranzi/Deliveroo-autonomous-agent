@@ -256,6 +256,9 @@ export class BT_Agent {
 
     /** @param {NavigationPath} navigationPath */
     #loadIntentionActions(navigationPath) {
+        // Erase old moving actions before loading new ones, to avoid conflicts and ensure the intention is up to date with the latest beliefs
+        this.#agentMovingActions.length = 0;
+
         for (const step of navigationPath.path) {
             this.#agentMovingActions.push(step);
         }
@@ -280,6 +283,12 @@ export class BT_Agent {
     /** @param {TilePosition} dest @return {boolean} */
     #destinationIsParcelTile(dest) {
         return this.#sensedParcels.some(p => p.x === dest.x && p.y === dest.y);
+    }
+
+    /** @param {TilePosition} dest @return {boolean} */
+    #destinationIsValidTile(dest) {
+        const type = this.#worldMap.tiles[dest.x]?.[dest.y];
+        return type !== null && type !== TILE_TYPES.wall;
     }
 
     /**
@@ -349,6 +358,34 @@ export class BT_Agent {
         }
     }
 
+    async #randomlyExploreMap() {
+        if (this.#hasNavigationPath(dest => this.#destinationIsValidTile(dest))) {
+            const nextMove = this.#agentMovingActions.shift();
+            const success = await this.#resilientMove(nextMove.direction);
+
+            if (!success) {
+                console.error(`Move failed, aborting current navigation path`);
+                this.#agentMovingActions.length = 0;
+            }
+        } else {
+            const validTiles = [];
+            for (let x = 0; x < this.#worldMap.width; x++) {
+                for (let y = 0; y < this.#worldMap.height; y++) {
+                    const type = this.#worldMap.tiles[x][y];
+                    if (type !== null && type !== TILE_TYPES.wall) {
+                        validTiles.push({ x, y });
+                    }
+                }
+            }
+
+            const randomTile = validTiles[Math.floor(Math.random() * validTiles.length)];
+            const navigationPath = await this.#pathFinder.aStar(this.#worldMap, { x: this.#me.x, y: this.#me.y }, randomTile);
+            console.log("Random exploration path planned:");
+            console.dir(navigationPath, { depth: null });
+            this.#loadIntentionActions(navigationPath);
+        }
+    }
+
 
     // ── Execution ─────────────────────────────────────────────────────────────
 
@@ -380,8 +417,7 @@ export class BT_Agent {
                     await this.#pickupClosestParcel();
 
                 } else {
-                    //XXX: in future evaluate when is not appropriate to erase the planned moving actions
-                    this.#agentMovingActions.length = 0;
+                    await this.#randomlyExploreMap();
                     await new Promise((r) => setTimeout(r, 0));
                 }
             }
