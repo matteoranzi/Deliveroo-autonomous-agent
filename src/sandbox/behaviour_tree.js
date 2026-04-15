@@ -18,7 +18,7 @@ import {TILE_TYPES} from "#types/world.js";
 
 const START_DELAY_MS = 1000;
 
-export class BDI_Agent {
+export class BT_Agent {
 
     // ── Beliefs ───────────────────────────────────────────────────────────────
 
@@ -42,8 +42,12 @@ export class BDI_Agent {
     /** @type {Array} */
     #parcelSpawnerTiles = [];
 
+    //TODO put 'me' inside sensedWorld
     /** @type {IOAgent} */
     #me = {};
+
+    /** @type {IOParcel[]} */
+    #sensedParcels = [];
 
     /** @type {IOGameOptions} */
     #gameConfig = {};
@@ -95,60 +99,7 @@ export class BDI_Agent {
                 this.#sensedWorld.tiles[position.x][position.y].updateTime = this.#elapsedTime
             }
 
-            /*for (let agent of sensing.agents) {
-                //TODO: infer other agents move direction (by comparing current tile and previous tile)
-                // eventually implement some logic and strategy on this information
-                //XXX: for now intermediate step values are skipped
-                if (agent.x %1 !== 0 || agent.y %1 !== 0) continue;
-
-                if(!this.#agentsMap.has(agent.id)) {
-                    console.log("Nice to meet you, ", agent.name);
-                    this.#agentsMap.set(agent.id, [agent]);
-                } else { // This agent remembers him
-                    const agentHistory = this.#agentsMap.get(agent.id);
-                    const last = agentHistory.at(-1);
-                    const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
-
-                    if (last !== "lost") { // This agent was seeing him also last time
-                        if (last.x !== agent.x && last.y !== agent.y) {
-                            agentHistory.push(agent);
-                            console.log("I'm seeing you moving, ", agent.name);
-                        } else {
-                            //Still seeing him, but he is not moving
-                            console.log("I'm still seeing you, but you are not moving, ", agent.name);
-                        }
-                    } else { // This agent didn't see him last time
-                        agentHistory.push(agent);
-
-                        if (secondLast.x !== agent.x && secondLast.y !== agent.y) {
-                            console.log("Welcome back, seems that you moved, ", agent.name);
-                        } else {
-                            console.log("Welcome back, seems you are stil here as before, ", agent.name);
-                        }
-                    }
-                }
-            }
-
-            for (const [id, agentHistory] of this.#agentsMap.entries()) {
-                const last = agentHistory.at(-1);
-                const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
-
-                if (!sensing.agents.map(agent => agent.id).includes(id)) {
-                    // If this agent is not seeing him anymore
-
-                    if (last !== "lost") {
-                        agentHistory.push("lost");
-                        console.log("I lost sight of you, ", last.name);
-                    } else {
-                        // Still not seeing him, but I already lost him before
-                        console.log("It's a while that I down't see ", secondLast.name, ". I remember him in: ", secondLast.x , ", ", secondLast.y);
-                        if ( this.#pathFinder.manhattanDistance({x: this.#me.x, y: this.#me.y}, {x: secondLast.x, y: secondLast.y}) <= this.#gameConfig.GAME.player.observation_distance ) {
-                            console.log( 'I remember ', secondLast.name, 'was within ', this.#gameConfig.GAME.player.observation_distance, ' tiles from here. Forget him.' );
-                            this.#agentsMap.delete(id)
-                        }
-                    }
-                }
-            }*/
+            this.#sensedParcels = sensing.parcels;
         });
 
         this.#socket.on("info", (info) => {
@@ -212,9 +163,14 @@ export class BDI_Agent {
      */
     #waitForYou() {
         return new Promise((resolve) => {
-            //XXX consider there half-step event
             this.#socket.onYou((you) => {
+                // Skip half-step events — server emits fractional coords mid-move
+                console.log(`You: ${you.x}, ${you.y}, ${you.z}`);
+                you.x = Math.round(you.x);
+                you.y = Math.round(you.y);
+                // if (!Number.isInteger(you.x) || !Number.isInteger(you.y)) return;
                 this.#me = you;
+                console.log("You are:", you);
                 resolve(); // no-op after first call
             });
         });
@@ -304,6 +260,60 @@ export class BDI_Agent {
         }
     }
 
+
+
+    // ── Behaviour Tree ─────────────────────────────────────────────────────────────
+    #isOnDeliveryTile() {
+        return this.#worldMap.tiles[this.#me.x][this.#me.y] === TILE_TYPES.delivery;
+    }
+
+    /**
+     *
+     * @param {string} targetTile
+     * @return {boolean}
+     */
+    #hasNavigationPath(targetTile) {
+        if (this.#agentMovingActions.length > 0) {
+            const destinationTile = this.#agentMovingActions.at(-1).to;
+            console.log("Destination tile of current navigation path: ", destinationTile);
+
+
+            if(this.#worldMap.tiles[destinationTile.x][destinationTile.y] === targetTile) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    async #hasParcel() {
+        return this.#sensedParcels.some(parcel => parcel.carriedBy === this.#me.id);
+    }
+
+    async #deliverParcel() {
+        if(this.#isOnDeliveryTile()) {
+            console.log(`Delivering parcel...`);
+            await this.#socket.emitPutdown();
+
+        } else if (this.#hasNavigationPath(TILE_TYPES.delivery)) {
+            const nextMove = this.#agentMovingActions.shift();
+            const success = await this.#resilientMove(nextMove.direction);
+
+            if (!success) {
+                console.error(`Move failed, aborting current navigation path`);
+                this.#agentMovingActions.length = 0; // clear remaining planned moves
+            }
+        } else {
+            const navigationPath = await this.#getPathToClosestDeliveryTile();
+            console.log("Navigation path planned:");
+            console.dir(navigationPath, { depth: null });
+            this.#loadIntentionActions(navigationPath);
+        }
+
+
+    }
+
+
     // ── Execution ─────────────────────────────────────────────────────────────
 
     /**
@@ -323,18 +333,14 @@ export class BDI_Agent {
         //TODO: write a resilientMove method that tries the move X times, if it fails the promise returns a failure
 
         const executionLoop = async () => {
+            console.log("Execution Loop...");
             while (true) {
-                if (this.#agentMovingActions.length > 0) {
-                    const nextAction = this.#agentMovingActions.shift();
-                    // console.log(`Moving ${nextAction.direction}: (${nextAction.from.x},${nextAction.from.y}) → (${nextAction.to.x},${nextAction.to.y})`);
-                    const success = await this.#resilientMove(nextAction.direction);
-                    if (!success) {
-                        console.error(`Move failed, aborting ${nextAction.direction}`);
-                        return;
-                    }
+                if(await this.#hasParcel()) {
+                    console.log("I have a parcel, trying to deliver...");
+                    await this.#deliverParcel();
                 } else {
-                    //XXX should the agent wait doing nothing until the next tick or should it immediately check for other options?
-                    //await new Promise((r) => setTimeout(r, this.#gameConfig.CLOCK));
+                    //XXX: in future evaluate when is not appropriate to erase the planned moving actions
+                    this.#agentMovingActions.length = 0;
                     await new Promise((r) => setTimeout(r, 0));
                 }
             }
@@ -348,6 +354,5 @@ export class BDI_Agent {
         };
 
         setTimeout(() => executionLoop(), START_DELAY_MS);
-        await deliberate();
     }
 }

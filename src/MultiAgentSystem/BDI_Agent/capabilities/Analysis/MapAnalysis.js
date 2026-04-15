@@ -1,5 +1,5 @@
 import {TILE_TYPES} from "#types/world.js";
-import {getNeighbors} from "#MultiAgentSystem/AutonomousAgent/capabilities/mapUtils.js";
+import {getNeighbors} from "#MultiAgentSystem/BDI_Agent/capabilities/mapUtils.js";
 
 /**
  * @typedef {import("#types/world.js").WorldMap} WorldMap
