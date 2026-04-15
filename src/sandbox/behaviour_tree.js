@@ -37,9 +37,9 @@ export class BT_Agent {
     /** @type {Map<string, IOCrate>} */
     #cratesMap = new Map();
 
-    /** @type {Array} */
+    /** @type {IOTile[] } */
     #deliveryTiles = [];
-    /** @type {Array} */
+    /** @type {IOTile[] } */
     #parcelSpawnerTiles = [];
 
     //TODO put 'me' inside sensedWorld
@@ -146,7 +146,7 @@ export class BT_Agent {
 
                     switch (tileType) {
                         case TILE_TYPES.parcelSpawner: this.#parcelSpawnerTiles.push(tile); break;
-                        case TILE_TYPES.delivery:      this.#deliveryTiles.push(tile);      break;
+                        case TILE_TYPES.delivery: this.#deliveryTiles.push(tile);      break;
                     }
                 }
 
@@ -227,15 +227,16 @@ export class BT_Agent {
     /**
      * Finds the shortest path to the closest reachable delivery tile.
      * Only tiles in the same SCC as the agent's current position are considered.
+     * @param {IOTile[]} targetTiles
      * @returns {Promise<NavigationPath>}
      */
     // TODO: consider avoiding delivery tiles in areas crowded by other agents
-    async #getPathToClosestDeliveryTile() {
+    async #getPathToClosestTargetTiles(targetTiles) {
         const startTile = { x: this.#me.x, y: this.#me.y };
 
         // XXX: only targets in the same SCC are currently considered reachable.
         // TODO implement verification if it make sense to change SCC (for example in destination scc there are more spawning AND delivery tiles)
-        const eligibleTiles = this.#deliveryTiles.filter(
+        const eligibleTiles = targetTiles.filter(
             (tile) => this.#sccMap[startTile.x][startTile.y] === this.#sccMap[tile.x][tile.y]
         );
 
@@ -267,20 +268,29 @@ export class BT_Agent {
         return this.#worldMap.tiles[this.#me.x][this.#me.y] === TILE_TYPES.delivery;
     }
 
+    #isOnParcelTile() {
+        return this.#sensedParcels.some(parcel => parcel.x === this.#me.x && parcel.y === this.#me.y);
+    }
+
+    /** @param {TilePosition} dest @return {boolean} */
+    #destinationIsDeliveryTile(dest) {
+        return this.#worldMap.tiles[dest.x][dest.y] === TILE_TYPES.delivery;
+    }
+
+    /** @param {TilePosition} dest @return {boolean} */
+    #destinationIsParcelTile(dest) {
+        return this.#sensedParcels.some(p => p.x === dest.x && p.y === dest.y);
+    }
+
     /**
-     *
-     * @param {string} targetTile
+     * @param {(destination: TilePosition) => boolean} predicate
      * @return {boolean}
      */
-    #hasNavigationPath(targetTile) {
+    #hasNavigationPath(predicate) {
         if (this.#agentMovingActions.length > 0) {
             const destinationTile = this.#agentMovingActions.at(-1).to;
             console.log("Destination tile of current navigation path: ", destinationTile);
-
-
-            if(this.#worldMap.tiles[destinationTile.x][destinationTile.y] === targetTile) {
-                return true;
-            }
+            return predicate(destinationTile);
         }
 
         return false;
@@ -290,12 +300,14 @@ export class BT_Agent {
         return this.#sensedParcels.some(parcel => parcel.carriedBy === this.#me.id);
     }
 
+
+
     async #deliverParcel() {
         if(this.#isOnDeliveryTile()) {
             console.log(`Delivering parcel...`);
             await this.#socket.emitPutdown();
 
-        } else if (this.#hasNavigationPath(TILE_TYPES.delivery)) {
+        } else if (this.#hasNavigationPath(dest => this.#destinationIsDeliveryTile(dest))) {
             const nextMove = this.#agentMovingActions.shift();
             const success = await this.#resilientMove(nextMove.direction);
 
@@ -304,13 +316,37 @@ export class BT_Agent {
                 this.#agentMovingActions.length = 0; // clear remaining planned moves
             }
         } else {
-            const navigationPath = await this.#getPathToClosestDeliveryTile();
+            const navigationPath = await this.#getPathToClosestTargetTiles(this.#deliveryTiles);
             console.log("Navigation path planned:");
             console.dir(navigationPath, { depth: null });
             this.#loadIntentionActions(navigationPath);
         }
+    }
 
+    #detectsParcelsNearby() {
+        return this.#sensedParcels.length > 0;
+    }
 
+    async #pickupClosestParcel() {
+        if (this.#isOnParcelTile()) {
+            await this.#socket.emitPickup()
+
+            // If we are on a parcel tile that was not the destination of the current navigation path, we should clear the planned moves since we achieved our goal to pickup a parcel
+            this.#agentMovingActions.length = 0;
+        } else if (this.#hasNavigationPath(dest => this.#destinationIsParcelTile(dest))) {
+            const nextMove = this.#agentMovingActions.shift();
+            const success = await this.#resilientMove(nextMove.direction);
+
+            if (!success) {
+                console.error(`Move failed, aborting current navigation path`);
+                this.#agentMovingActions.length = 0; // clear remaining planned moves
+            }
+        } else {
+            const navigationPath = await this.#getPathToClosestTargetTiles(this.#sensedParcels.map(parcel => ({ x: parcel.x, y: parcel.y })));
+            console.log("Navigation path to closest parcel planned:");
+            console.dir(navigationPath, { depth: null });
+            this.#loadIntentionActions(navigationPath);
+        }
     }
 
 
@@ -338,19 +374,17 @@ export class BT_Agent {
                 if(await this.#hasParcel()) {
                     console.log("I have a parcel, trying to deliver...");
                     await this.#deliverParcel();
+                } else if(this.#detectsParcelsNearby()) {
+                    console.log("Parcels detected nearby, moving to pick up the closest...");
+
+                    await this.#pickupClosestParcel();
+
                 } else {
                     //XXX: in future evaluate when is not appropriate to erase the planned moving actions
                     this.#agentMovingActions.length = 0;
                     await new Promise((r) => setTimeout(r, 0));
                 }
             }
-        };
-
-        const deliberate = async () => {
-            const navigationPath = await this.#getPathToClosestDeliveryTile();
-            console.log("Navigation path planned:");
-            console.dir(navigationPath, { depth: null });
-            this.#loadIntentionActions(navigationPath);
         };
 
         setTimeout(() => executionLoop(), START_DELAY_MS);
