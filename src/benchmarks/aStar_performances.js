@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
+import {DjsConnect} from "@unitn-asa/deliveroo-js-sdk/client";
 import {PathFinder} from "#MultiAgentSystem/BDI_Agent/capabilities/Navigation/PathFinder.js";
 import {MapAnalysis} from "#MultiAgentSystem/BDI_Agent/capabilities/Analysis/MapAnalysis.js";
 import {TILE_TYPES} from "#types/world.js";
@@ -18,17 +18,17 @@ import {TILE_TYPES} from "#types/world.js";
 
 const START_DELAY_MS = 1000;
 
-export class BDI_Agent {
+export class BenchmarkAgent {
 
     // ── Beliefs ───────────────────────────────────────────────────────────────
 
     /** @type {WorldMap} */
-    #worldMap = { width: 0, height: 0, tiles: [] };
+    #worldMap = {width: 0, height: 0, tiles: []};
     /** @type {number[][]} */
     #sccMap = [];
 
     /** @type {WorldSensing} */
-    #sensedWorld =  { width: 0, height: 0, tiles: [] };
+    #sensedWorld = {width: 0, height: 0, tiles: []};
 
     /** @type {Map<string, [IOAgent]>} */
     #agentsMap = new Map();
@@ -50,7 +50,6 @@ export class BDI_Agent {
 
     /** @type {number} */
     #elapsedTime = 0;
-
 
 
     // ── Intention execution ───────────────────────────────────────────────────
@@ -79,7 +78,7 @@ export class BDI_Agent {
             this.#waitForConfig(),
         ]);
 
-        console.log("Initial beliefs acquired");
+        // console.log("Initial beliefs acquired");
 
         // Derived belief — computed once from the static map
         this.#sccMap = this.#mapAnalysis.stronglyConnectedComponents(this.#worldMap);
@@ -94,61 +93,6 @@ export class BDI_Agent {
             for (let position of sensing.positions) {
                 this.#sensedWorld.tiles[position.x][position.y].updateTime = this.#elapsedTime
             }
-
-            /*for (let agent of sensing.agents) {
-                //TODO: infer other agents move direction (by comparing current tile and previous tile)
-                // eventually implement some logic and strategy on this information
-                //XXX: for now intermediate step values are skipped
-                if (agent.x %1 !== 0 || agent.y %1 !== 0) continue;
-
-                if(!this.#agentsMap.has(agent.id)) {
-                    console.log("Nice to meet you, ", agent.name);
-                    this.#agentsMap.set(agent.id, [agent]);
-                } else { // This agent remembers him
-                    const agentHistory = this.#agentsMap.get(agent.id);
-                    const last = agentHistory.at(-1);
-                    const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
-
-                    if (last !== "lost") { // This agent was seeing him also last time
-                        if (last.x !== agent.x && last.y !== agent.y) {
-                            agentHistory.push(agent);
-                            console.log("I'm seeing you moving, ", agent.name);
-                        } else {
-                            //Still seeing him, but he is not moving
-                            console.log("I'm still seeing you, but you are not moving, ", agent.name);
-                        }
-                    } else { // This agent didn't see him last time
-                        agentHistory.push(agent);
-
-                        if (secondLast.x !== agent.x && secondLast.y !== agent.y) {
-                            console.log("Welcome back, seems that you moved, ", agent.name);
-                        } else {
-                            console.log("Welcome back, seems you are stil here as before, ", agent.name);
-                        }
-                    }
-                }
-            }
-
-            for (const [id, agentHistory] of this.#agentsMap.entries()) {
-                const last = agentHistory.at(-1);
-                const secondLast = (agentHistory.length > 1 ? agentHistory.at(-2) : "no knowledge");
-
-                if (!sensing.agents.map(agent => agent.id).includes(id)) {
-                    // If this agent is not seeing him anymore
-
-                    if (last !== "lost") {
-                        agentHistory.push("lost");
-                        console.log("I lost sight of you, ", last.name);
-                    } else {
-                        // Still not seeing him, but I already lost him before
-                        console.log("It's a while that I down't see ", secondLast.name, ". I remember him in: ", secondLast.x , ", ", secondLast.y);
-                        if ( this.#pathFinder.manhattanDistance({x: this.#me.x, y: this.#me.y}, {x: secondLast.x, y: secondLast.y}) <= this.#gameConfig.GAME.player.observation_distance ) {
-                            console.log( 'I remember ', secondLast.name, 'was within ', this.#gameConfig.GAME.player.observation_distance, ' tiles from here. Forget him.' );
-                            this.#agentsMap.delete(id)
-                        }
-                    }
-                }
-            }*/
         });
 
         this.#socket.on("info", (info) => {
@@ -157,7 +101,7 @@ export class BDI_Agent {
         })
 
 
-        console.log("All beliefs acquired — agent ready.");
+        // console.log("All beliefs acquired — agent ready.");
     }
 
     /**
@@ -169,7 +113,7 @@ export class BDI_Agent {
             this.#socket.onMap((width, height, tiles) => {
                 // XXX: server bug — reported width/height may be incorrect, derive from tile positions
                 for (const tile of tiles) {
-                    if (tile.x > this.#worldMap.width)  this.#worldMap.width  = tile.x;
+                    if (tile.x > this.#worldMap.width) this.#worldMap.width = tile.x;
                     if (tile.y > this.#worldMap.height) this.#worldMap.height = tile.y;
                 }
                 this.#worldMap.width++;
@@ -179,23 +123,27 @@ export class BDI_Agent {
                 this.#sensedWorld.height = this.#worldMap.height
 
                 this.#worldMap.tiles = Array.from(
-                    { length: this.#worldMap.width },
+                    {length: this.#worldMap.width},
                     () => new Array(this.#worldMap.height).fill(null)
                 );
                 this.#sensedWorld.tiles = Array.from(
-                    { length: this.#sensedWorld.width },
+                    {length: this.#sensedWorld.width},
                     () => new Array(this.#sensedWorld.height).fill(null)
                 );
 
                 for (const tile of tiles) {
                     const tileType = String(tile.type);
                     this.#worldMap.tiles[tile.x][tile.y] = tileType;
-                    this.#sensedWorld.tiles[tile.x][tile.y] = { updateTime: 0 };
+                    this.#sensedWorld.tiles[tile.x][tile.y] = {updateTime: 0};
 
 
                     switch (tileType) {
-                        case TILE_TYPES.parcelSpawner: this.#parcelSpawnerTiles.push(tile); break;
-                        case TILE_TYPES.delivery:      this.#deliveryTiles.push(tile);      break;
+                        case TILE_TYPES.parcelSpawner:
+                            this.#parcelSpawnerTiles.push(tile);
+                            break;
+                        case TILE_TYPES.delivery:
+                            this.#deliveryTiles.push(tile);
+                            break;
                     }
                 }
 
@@ -241,7 +189,7 @@ export class BDI_Agent {
         return new Promise((resolve) => {
             this.#socket.on("config", (config) => {
                 this.#gameConfig = config;
-                console.log("Game config:", config);
+                // console.log("Game config:", config);
                 resolve();
             });
         });
@@ -252,11 +200,11 @@ export class BDI_Agent {
         const move = (direction) => new Promise((resolve) => this.#socket.emit("move", direction, resolve));
 
         for (let i = 0; i < maxAttempts; ++i) {
-            console.log(`Moving ${direction} (attempt ${i + 1}/${maxAttempts})...`);
+            // console.log(`Moving ${direction} (attempt ${i + 1}/${maxAttempts})...`);
             const result = await move(direction);
             if (result) return result;
 
-            console.log(`Move ${direction} failed (attempt ${i + 1}/${maxAttempts}), retrying...`);
+            // console.log(`Move ${direction} failed (attempt ${i + 1}/${maxAttempts}), retrying...`);
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
@@ -275,7 +223,7 @@ export class BDI_Agent {
      */
     // TODO: consider avoiding delivery tiles in areas crowded by other agents
     async #getPathToClosestDeliveryTile() {
-        const startTile = { x: this.#me.x, y: this.#me.y };
+        const startTile = {x: this.#me.x, y: this.#me.y};
 
         // XXX: only targets in the same SCC are currently considered reachable.
         // TODO implement verification if it make sense to change SCC (for example in destination scc there are more spawning AND delivery tiles)
@@ -285,7 +233,7 @@ export class BDI_Agent {
 
         const paths = await Promise.all(
             eligibleTiles.map((tile) =>
-                Promise.resolve(this.#pathFinder.aStar(this.#worldMap, startTile, { x: tile.x, y: tile.y }))
+                Promise.resolve(this.#pathFinder.aStar(this.#worldMap, startTile, {x: tile.x, y: tile.y}))
             )
         );
 
@@ -293,7 +241,7 @@ export class BDI_Agent {
             .filter((path) => path !== null)
             .reduce(
                 (shortest, path) => path.distance < shortest.distance ? path : shortest,
-                { distance: Infinity, path: [] }
+                {distance: Infinity, path: []}
             );
     }
 
@@ -315,39 +263,48 @@ export class BDI_Agent {
      * @returns {Promise<void>}
      */
     async start() {
-        console.log("Initializing...");
+        // console.log("Initializing...");
         await this.#initialize()
-        console.log("Starting...");
-
-
-        //TODO: write a resilientMove method that tries the move X times, if it fails the promise returns a failure
+        // console.log("Starting...");
 
         const executionLoop = async () => {
-            while (true) {
-                if (this.#agentMovingActions.length > 0) {
-                    const nextAction = this.#agentMovingActions.shift();
-                    // console.log(`Moving ${nextAction.direction}: (${nextAction.from.x},${nextAction.from.y}) → (${nextAction.to.x},${nextAction.to.y})`);
-                    const success = await this.#resilientMove(nextAction.direction);
-                    if (!success) {
-                        console.error(`Move failed, aborting ${nextAction.direction}`);
-                        return;
+            let averageTime = 0;
+            const ITERATIONS = 300;
+
+            const validTiles = [];
+            for (let x = 0; x < this.#worldMap.width; x++) {
+                for (let y = 0; y < this.#worldMap.height; y++) {
+                    const type = this.#worldMap.tiles[x][y];
+                    if (type !== null && type !== TILE_TYPES.wall) {
+                        validTiles.push({x, y});
                     }
-                } else {
-                    //XXX should the agent wait doing nothing until the next tick or should it immediately check for other options?
-                    //await new Promise((r) => setTimeout(r, this.#gameConfig.CLOCK));
-                    await new Promise((r) => setTimeout(r, 0));
                 }
             }
-        };
 
-        const deliberate = async () => {
-            const navigationPath = await this.#getPathToClosestDeliveryTile();
-            console.log("Navigation path planned:");
-            console.dir(navigationPath, { depth: null });
-            this.#loadIntentionActions(navigationPath);
+            console.log("\n======\nTHIS BENCHMARK CALCULATES AVERAGE TIME TO FIND NAVIGATION PATH FROM STARTING TILE TO ALL OTHER TILES.\n=======\n");
+            console.log("Starting A* benchmark...")
+
+            let percent = 0;
+            for (let i = 0; i < ITERATIONS; i++) {
+                const randomStartTile =  validTiles[Math.floor(Math.random() * validTiles.length)];
+
+                percent += 100 / ITERATIONS;
+                process.stdout.write(`Caricamento: ${percent.toFixed(0)}% \r`);
+
+                const iterationStart = performance.now();
+
+                for (let destTile of validTiles) {
+                    this.#pathFinder.aStar(this.#worldMap, randomStartTile, destTile);
+                }
+
+                const iterationTime = (performance.now() - iterationStart);
+                averageTime += iterationTime
+            }
+            console.log("\nCompleted!")
+            console.log("\n========\n");
+            console.log(`[MAP WITH #${validTiles.length} TILES] Average per iteration: ${(averageTime / ITERATIONS).toFixed(2)}ms`);
         };
 
         setTimeout(() => executionLoop(), START_DELAY_MS);
-        await deliberate();
     }
 }

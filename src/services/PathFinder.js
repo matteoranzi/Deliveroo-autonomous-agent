@@ -1,5 +1,5 @@
 import {MinPriorityQueue} from "@datastructures-js/priority-queue";
-import {getNeighbors} from "../mapUtils.js";
+import {getNeighbors} from "./mapUtils.js";
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOTile.js").IOTile} IOTile
@@ -130,11 +130,10 @@ export class PathFinder {
      * @param {WorldMap} map
      * @param {TilePosition} startTile
      * @param {TilePosition} targetTile
-     * @param {IOAgent} sensedAgents
      * @param {HeuristicFunction} heuristic
      * @returns {NavigationPath | null} If path exists, the route and total distance is returned. null otherwise
      */
-    aStar(map, startTile, targetTile, sensedAgents, heuristic = this.manhattanDistance) {
+    aStar(map, startTile, targetTile, heuristic = this.manhattanDistance) {
 
         const minQueue = new MinPriorityQueue((tileScore) => tileScore.distance, [{tile: startTile, distance: 0}]);
         const cameFrom    = Array.from({length: map.width}, () => new Array(map.height).fill(null));
@@ -154,7 +153,7 @@ export class PathFinder {
                 return this.reconstructPath(cameFrom, currentTile);
             }
 
-            for (const neighborTile of getNeighbors(map, currentTile, sensedAgents)) {
+            for (const neighborTile of getNeighbors(map, currentTile)) {
                 const tentativeCostScore = costScore[currentTile.x][currentTile.y] + COST_TO_NEIGHBOR;
 
                 if (tentativeCostScore < costScore[neighborTile.x][neighborTile.y]) {

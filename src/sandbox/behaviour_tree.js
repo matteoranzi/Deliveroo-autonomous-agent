@@ -49,6 +49,9 @@ export class BT_Agent {
     /** @type {IOParcel[]} */
     #sensedParcels = [];
 
+    /** @type {IOAgent[]} */
+    #sensedAgents = []
+
     /** @type {IOGameOptions} */
     #gameConfig = {};
 
@@ -79,7 +82,7 @@ export class BT_Agent {
         await Promise.all([
             this.#waitForMap(),
             this.#waitForYou(),
-            this.#waitForInfo(),
+            // this.#waitdForInfo(),
             this.#waitForConfig(),
         ]);
 
@@ -93,13 +96,15 @@ export class BT_Agent {
         // Sensing is a continuous listener, not a one-shot init Promise
         this.#socket.onSensing((sensing) => {
             // TODO: trigger intention reconsideration if the current planned path is affected
-            // console.log("Sensing update:", sensing);
+            console.log("Sensing update:", sensing);
 
             for (let position of sensing.positions) {
                 this.#sensedWorld.tiles[position.x][position.y].updateTime = this.#elapsedTime
             }
 
             this.#sensedParcels = sensing.parcels;
+            this.#sensedAgents = sensing.agents;
+            this.#sensedAgents.forEach(agent => {agent.x = Math.round(agent.x); agent.y = Math.round(agent.y)});
         });
 
         this.#socket.on("info", (info) => {
@@ -165,7 +170,7 @@ export class BT_Agent {
         return new Promise((resolve) => {
             this.#socket.onYou((you) => {
                 // Skip half-step events — server emits fractional coords mid-move
-                console.log(`You: ${you.x}, ${you.y}, ${you.z}`);
+                console.log(`You: ${you.x}, ${you.y}`);
                 you.x = Math.round(you.x);
                 you.y = Math.round(you.y);
                 // if (!Number.isInteger(you.x) || !Number.isInteger(you.y)) return;
@@ -228,11 +233,11 @@ export class BT_Agent {
      * Finds the shortest path to the closest reachable delivery tile.
      * Only tiles in the same SCC as the agent's current position are considered.
      * @param {IOTile[]} targetTiles
+     * @param {IOTile} startTile
      * @returns {Promise<NavigationPath>}
      */
     // TODO: consider avoiding delivery tiles in areas crowded by other agents
-    async #getPathToClosestTargetTiles(targetTiles) {
-        const startTile = { x: this.#me.x, y: this.#me.y };
+    async #getPathToClosestTargetTiles(targetTiles, startTile = { x: this.#me.x, y: this.#me.y }) {
 
         // XXX: only targets in the same SCC are currently considered reachable.
         // TODO implement verification if it make sense to change SCC (for example in destination scc there are more spawning AND delivery tiles)
@@ -272,7 +277,7 @@ export class BT_Agent {
     }
 
     #isOnParcelTile() {
-        return this.#sensedParcels.some(parcel => parcel.x === this.#me.x && parcel.y === this.#me.y);
+        return this.#sensedParcels.some(parcel => parcel.x === this.#me.x && parcel.y === this.#me.y && parcel.carriedBy == null);
     }
 
     /** @param {TilePosition} dest @return {boolean} */
@@ -309,6 +314,88 @@ export class BT_Agent {
         return this.#sensedParcels.some(parcel => parcel.carriedBy === this.#me.id);
     }
 
+    /**
+     * Returns the projected total reward of all parcels currently carried by this agent
+     * after `steps` moves, accounting for value decay.
+     *
+     * Each move takes `CLOCK` ms. The parcel reward decreases by 1 every `decaying_event` ms.
+     *
+     * @param {number} [steps=0] - Number of move steps before delivery (0 = current value)
+     * @returns {number}
+     */
+    #carriedParcelsValueAfterSteps(steps = 0) {
+        const clock = this.#gameConfig.CLOCK ?? 0;
+        const decayInterval = this.#gameConfig?.GAME?.parcels?.decaying_event ?? Infinity;
+
+        return this.#sensedParcels
+            .filter(parcel => parcel.carriedBy === this.#me.id)
+            .reduce((total, parcel) => {
+                const decay = decayInterval > 0 ? Math.floor((steps * clock) / decayInterval) : 0;
+                return total + Math.max(0, parcel.reward - decay);
+            }, 0);
+    }
+
+    /**
+     * Projects the total reward when detouring to pick up a candidate parcel before delivering.
+     *
+     * All parcels (carried and candidate) decay continuously regardless of who holds them,
+     * so the full trip length `stepsToParcel + stepsToDelivery` is used for every parcel.
+     *
+     * @param {number} stepsToParcel   - Steps from current position to the candidate parcel.
+     * @param {number} stepsToDelivery - Steps from the candidate parcel to the delivery tile.
+     * @param {IOParcel} candidateParcel - The parcel being considered for pickup.
+     * @returns {number}
+     */
+    //FIXME currently the agent deviate to pick a parcel even though it doesn't worth it
+    #carriedParcelsValueWithDeviation(stepsToParcel, stepsToDelivery, candidateParcel) {
+        const totalSteps = stepsToParcel + stepsToDelivery;
+        const clock = this.#gameConfig.CLOCK ?? 0;
+        const decayInterval = this.#gameConfig?.GAME?.parcels?.decaying_event ?? Infinity;
+
+        const carriedValue = this.#carriedParcelsValueAfterSteps(totalSteps);
+
+        const candidateDecay = decayInterval > 0 ? Math.floor((totalSteps * clock) / decayInterval) : 0;
+        const candidateValue = Math.max(0, candidateParcel.reward - candidateDecay);
+
+        return carriedValue + candidateValue;
+    }
+
+    /**
+     * Evaluates whether detouring to any free parcel improves total projected reward.
+     * If a beneficial detour is found, loads the path to that parcel and returns true.
+     * Returns false when going straight to delivery is already optimal.
+     * @returns {Promise<boolean>}
+     */
+    async #greedyPickupParcel() {
+        const pathToDelivery = await this.#getPathToClosestTargetTiles(this.#deliveryTiles);
+        let bestReward = this.#carriedParcelsValueAfterSteps(pathToDelivery.distance);
+        let bestPath = null;
+
+        for (const parcel of this.#sensedParcels) {
+            if (parcel.carriedBy != null) continue;
+
+            const pathToParcel = await this.#pathFinder.aStar(this.#worldMap, { x: this.#me.x, y: this.#me.y }, { x: parcel.x, y: parcel.y }, this.#sensedAgents);
+            if (!pathToParcel) continue;
+
+            const pathFromParcelToDelivery = await this.#getPathToClosestTargetTiles(this.#deliveryTiles, { x: parcel.x, y: parcel.y });
+
+            const deviationReward = this.#carriedParcelsValueWithDeviation(pathToParcel.distance, pathFromParcelToDelivery.distance, parcel);
+
+            if (deviationReward > bestReward) {
+                bestReward = deviationReward;
+                bestPath = pathToParcel;
+            }
+        }
+
+        if (bestPath) {
+            console.log("Greedy deviation chosen — path to parcel:");
+            console.dir(bestPath, { depth: null });
+            this.#loadIntentionActions(bestPath);
+            return true;
+        }
+
+        return false;
+    }
 
 
     async #deliverParcel() {
@@ -324,6 +411,7 @@ export class BT_Agent {
                 console.error(`Move failed, aborting current navigation path`);
                 this.#agentMovingActions.length = 0; // clear remaining planned moves
             }
+
         } else {
             const navigationPath = await this.#getPathToClosestTargetTiles(this.#deliveryTiles);
             console.log("Navigation path planned:");
@@ -332,8 +420,15 @@ export class BT_Agent {
         }
     }
 
-    #detectsParcelsNearby() {
-        return this.#sensedParcels.length > 0;
+    #detectsFreeParcelsNearby() {
+        let freeParcels = false;
+        this.#sensedParcels.forEach(parcel => {if (parcel.carriedBy == null) freeParcels = true;})
+        // return this.#sensedParcels.length > 0;
+        return freeParcels;
+    }
+
+    async #efficientPickupParcels() {
+
     }
 
     async #pickupClosestParcel() {
@@ -368,18 +463,19 @@ export class BT_Agent {
                 this.#agentMovingActions.length = 0;
             }
         } else {
-            const validTiles = [];
-            for (let x = 0; x < this.#worldMap.width; x++) {
-                for (let y = 0; y < this.#worldMap.height; y++) {
-                    const type = this.#worldMap.tiles[x][y];
-                    if (type !== null && type !== TILE_TYPES.wall) {
-                        validTiles.push({ x, y });
-                    }
-                }
-            }
-
-            const randomTile = validTiles[Math.floor(Math.random() * validTiles.length)];
-            const navigationPath = await this.#pathFinder.aStar(this.#worldMap, { x: this.#me.x, y: this.#me.y }, randomTile);
+            // const validTiles = this.#parcelSpawnerTiles;
+            // for (let x = 0; x < this.#worldMap.width; x++) {
+            //     for (let y = 0; y < this.#worldMap.height; y++) {
+            //         const type = this.#worldMap.tiles[x][y];
+            //         if (type !== null && type !== TILE_TYPES.wall) {
+            //             validTiles.push({ x, y });
+            //         }
+            //     }
+            // }
+            //
+            // const randomTile = validTiles[Math.floor(Math.random() * validTiles.length)];a
+            const randomSpawnerTile = this.#parcelSpawnerTiles[Math.floor(Math.random() * this.#parcelSpawnerTiles.length)];
+            const navigationPath = await this.#pathFinder.aStar(this.#worldMap, { x: this.#me.x, y: this.#me.y }, randomSpawnerTile, this.#sensedAgents);
             console.log("Random exploration path planned:");
             console.dir(navigationPath, { depth: null });
             this.#loadIntentionActions(navigationPath);
@@ -409,9 +505,27 @@ export class BT_Agent {
             console.log("Execution Loop...");
             while (true) {
                 if(await this.#hasParcel()) {
-                    console.log("I have a parcel, trying to deliver...");
-                    await this.#deliverParcel();
-                } else if(this.#detectsParcelsNearby()) {
+                    if (this.#isOnParcelTile()) {
+                        await this.#socket.emitPickup();
+                        this.#agentMovingActions.length = 0; // deviation goal reached, reset path
+                    }
+
+                    if (this.#hasNavigationPath(dest => this.#destinationIsParcelTile(dest))) {
+                        // Mid-deviation: execute next step toward the greedy parcel
+                        console.log("HERE SHOULD MOVE")
+                        const nextMove = this.#agentMovingActions.shift();
+                        const success = await this.#resilientMove(nextMove.direction);
+                        if (!success) this.#agentMovingActions.length = 0;
+                    } else {
+                        // No deviation active: re-evaluate whether a detour is worthwhile
+                        if (this.#detectsFreeParcelsNearby()) {
+                            const deviating = await this.#greedyPickupParcel();
+                            if (deviating) continue; // start executing the deviation next tick
+                        }
+                        console.log("I have a parcel, trying to deliver...");
+                        await this.#deliverParcel();
+                    }
+                } else if(this.#detectsFreeParcelsNearby()) {
                     console.log("Parcels detected nearby, moving to pick up the closest...");
 
                     await this.#pickupClosestParcel();

@@ -9,12 +9,11 @@ import {TILE_TYPES} from "#types/world.js";
  * Returns the walkable neighbors of a tile, respecting walls, directional tiles, and crate-spawning tiles.
  * @param {WorldMap} map
  * @param {TilePosition} tile
- * @param {IOAgent[]} sensedAgents
  * @param {boolean} crateSpawningFriend whether the crate spawning tiles should be considered as valid neighbors (true) or not (false, default) for pathfinding purposes.
  * @returns {TilePosition[]}
  */
 //TODO implement fuzzy logic with known crates positions (agent runtime memory)
-export function getNeighbors(map, tile, sensedAgents = null, crateSpawningFriend = false) {
+export function getNeighbors(map, tile, crateSpawningFriend = false) {
     const neighbors = [];
 
     for (let dx = -1; dx <= 1; dx++) {
@@ -41,19 +40,9 @@ export function getNeighbors(map, tile, sensedAgents = null, crateSpawningFriend
 
             //FIXME implement fuzzy logic when a tile is occupied by another agent (agent sensing + memory)
 
-            if(sensedAgents && !freeTile(neighborX, neighborY, sensedAgents)) {
-                console.log(`Tile (${neighborX}, ${neighborY}) is occupied by another agent, skipping it as a neighbor.`);
-                continue;
-            }
-
             neighbors.push({x: neighborX, y: neighborY});
         }
     }
 
     return neighbors;
-}
-
-function freeTile(x, y, sensing) {
-    console.log(`freeTile (${x}, ${y}, ${sensing})`);
-    return !sensing.some(agent => agent.x === x && agent.y === y);
 }
